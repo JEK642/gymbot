@@ -58,5 +58,8 @@ bot.launch().then(() => {
   console.log('💪 Ready to track gains!');
 });
 
+console.log('✅ Bot is running...');
+console.log('✅ Connected to Supabase:', process.env.SUPABASE_URL);
+
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
