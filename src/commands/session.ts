@@ -19,6 +19,9 @@ import {
 } from '../keyboards/sessionMenu';
 import { WorkoutSessionWithDetails } from '../types';
 
+// ✅ FIX: Import supabase di atas, bukan dynamic import di dalam fungsi
+import { supabase } from '../config/supabase';
+
 // ============================================================
 // /session start [split_name]
 // ============================================================
@@ -244,9 +247,10 @@ export async function callbackCancelSession(ctx: Context) {
       return;
     }
 
-    // Update status ke cancelled
-    const { createClient } = await import('@supabase/supabase-js');
-    const { supabase } = await import('../config/supabase');
+    // ✅ FIX: Pakai supabase yang sudah di-import di atas
+    // Hapus dynamic import yang lama:
+    // ❌ const { createClient } = await import('@supabase/supabase-js'); // tidak dipakai!
+    // ❌ const { supabase } = await import('../config/supabase');
     await supabase
       .from('workout_sessions')
       .update({ status: 'cancelled' })
