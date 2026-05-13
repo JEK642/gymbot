@@ -1,28 +1,21 @@
+// src/keyboards/mainMenu.ts
 import { Markup } from 'telegraf';
 
-// ============================================
-// UPDATE: Tombol utama sekarang pakai 'wf_start'
-// untuk masuk ke guided tap-based workout flow
-// ============================================
-
 export const mainMenuKeyboard = Markup.inlineKeyboard([
-  // Baris 1: tombol utama — paling penting
   [
     Markup.button.callback('🏋️ Mulai Latihan', 'wf_start'),
   ],
-  // Baris 2: log cepat
   [
     Markup.button.callback('⚖️ Log Berat', 'menu_weight'),
     Markup.button.callback('📈 Stats', 'menu_stats'),
   ],
-  // Baris 3: tools
+  // Tombol "📋 Exercise List" dihapus.
+  // Masih bisa diakses via command /exercises kalau perlu.
   [
-    Markup.button.callback('📋 Exercise List', 'exercises_menu'),
     Markup.button.callback('❓ Bantuan', 'menu_help'),
   ],
 ]);
 
-// Workout type selector (sistem lama — tetap dipertahankan)
 export const workoutTypeKeyboard = Markup.inlineKeyboard([
   [
     Markup.button.callback('💪 Push',      'workout_push'),
@@ -48,7 +41,6 @@ export const workoutTypeKeyboard = Markup.inlineKeyboard([
   ],
 ]);
 
-// Tombol kembali ke menu — dipakai di berbagai tempat
 export const backToMenuKeyboard = Markup.inlineKeyboard([
   [Markup.button.callback('🏠 Menu Utama', 'menu_main')],
 ]);

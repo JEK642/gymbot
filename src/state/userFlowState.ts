@@ -1,16 +1,4 @@
-// ============================================
-// In-Memory State Manager
-//
-// Menyimpan "posisi" setiap user di dalam flow
-// Key: telegram_id (number)
-// Value: UserFlowState object
-//
-// Analogi: seperti useState di React, tapi
-// disimpan di server, bukan di browser.
-//
-// ⚠️ Data hilang kalau bot restart → ini OK
-//    karena flow workout hanya butuh beberapa menit
-// ============================================
+// src/state/userFlowState.ts
 
 export type FlowStep =
   | 'idle'
@@ -18,33 +6,24 @@ export type FlowStep =
   | 'selecting_exercise'
   | 'entering_weight'
   | 'entering_reps'
-  | 'set_logged';
+  | 'set_logged'
+  | 'entering_custom_exercise'  // BARU: user ketik nama exercise manual
+  | 'entering_custom_split'     // BARU: user ketik nama split manual
+  | 'entering_weight_log';      // BARU: user log berat badan dari menu
 
 export interface UserFlowState {
   step: FlowStep;
-
-  // Data session
   sessionId?: string;
   splitName?: string;
-
-  // Data exercise yang sedang dilog
   exerciseId?: string;
   exerciseName?: string;
   sessionExerciseId?: string;
-
-  // Data set yang sedang diinput
-  pendingWeight?: number;       // weight sudah diinput, nunggu reps
-  currentSetNumber?: number;    // set ke berapa untuk exercise ini
-
-  // Tracking message untuk bisa di-edit
+  pendingWeight?: number;
+  currentSetNumber?: number;
   flowMessageId?: number;
 }
 
-// ── Storage ───────────────────────────────────
-// Map<telegram_id, state>
 const states = new Map<number, UserFlowState>();
-
-// ── Public API ────────────────────────────────
 
 export function getFlowState(telegramId: number): UserFlowState {
   return states.get(telegramId) ?? { step: 'idle' };
@@ -54,7 +33,6 @@ export function setFlowState(telegramId: number, state: UserFlowState): void {
   states.set(telegramId, state);
 }
 
-// Update sebagian field saja (seperti setState di React)
 export function updateFlowState(
   telegramId: number,
   update: Partial<UserFlowState>
@@ -68,7 +46,14 @@ export function clearFlowState(telegramId: number): void {
 }
 
 // Cek apakah user sedang nunggu input teks
+// DIUPDATE: tambah 3 step baru
 export function isWaitingForInput(telegramId: number): boolean {
-  const state = getFlowState(telegramId);
-  return state.step === 'entering_weight' || state.step === 'entering_reps';
+  const { step } = getFlowState(telegramId);
+  return (
+    step === 'entering_weight' ||
+    step === 'entering_reps' ||
+    step === 'entering_custom_exercise' ||
+    step === 'entering_custom_split' ||
+    step === 'entering_weight_log'
+  );
 }

@@ -5,6 +5,7 @@ import { getLatestWeight } from '../services/weightService';
 import { getWorkoutsThisWeek, getTotalWorkouts } from '../services/workoutService';
 import { getWeightProgress } from '../services/weightService';
 import { handleExercises } from '../commands/exercise';
+import { updateFlowState } from '../state/userFlowState';
 
 // ============================================
 // HELPER: editOrReply
@@ -53,17 +54,25 @@ export function registerCallbackHandlers(bot: Telegraf): void {
     );
   });
 
+  // Di callbackHandler.ts, ganti handler menu_weight yang lama:
+
   bot.action('menu_weight', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
     await ctx.answerCbQuery();
+
+    // DIUPDATE: tidak lagi tampilkan instruksi command
+    // Sekarang langsung tanya angka → user ketik → simpan
+    updateFlowState(telegramId, { step: 'entering_weight_log' });
+
     await editOrReply(
       ctx,
-      `⚖️ *Log Berat Badan*\n\n` +
-      `Kirim perintah ini di chat:\n\n` +
-      `\`/weight 72.5\`\n\n` +
-      `_Ganti 72.5 dengan berat kamu sekarang._`,
+      `⚖️ *Log Berat Badan*\n\nBerapa berat kamu sekarang?\n\nKetik angka saja, contoh: \`72.5\``,
       {
         parse_mode: 'Markdown',
-        ...backToMenuKeyboard,
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('❌ Cancel', 'menu_main')],
+        ]),
       }
     );
   });
