@@ -1,4 +1,4 @@
-// bot.ts
+// bot.ts — FIX: anti konflik 409 (double instance)
 import { Telegraf } from 'telegraf';
 import { startCommand } from './commands/start';
 import { weightCommand } from './commands/weight';
@@ -81,9 +81,24 @@ bot.catch((err: unknown, ctx) => {
 });
 
 // ============================================================
-// LAUNCH
+// LAUNCH — dengan proteksi anti konflik 409
+// ✅ FIX: deleteWebhook dulu sebelum polling dimulai
+//         drop_pending_updates: true → buang update dari instance lama
 // ============================================================
-bot.launch();
+async function startBot() {
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    console.log('✅ Webhook cleared, starting bot...');
+
+    bot.launch();
+    console.log('🚀 Bot launched successfully!');
+  } catch (err) {
+    console.error('❌ Failed to start bot:', err);
+    process.exit(1);
+  }
+}
+
+startBot();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
