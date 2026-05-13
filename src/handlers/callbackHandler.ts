@@ -4,10 +4,34 @@ import { logWorkout } from '../services/workoutService';
 import { getLatestWeight } from '../services/weightService';
 import { getWorkoutsThisWeek, getTotalWorkouts } from '../services/workoutService';
 import { getWeightProgress } from '../services/weightService';
-
-// ✅ FIX: Static imports — tidak perlu dynamic import karena tidak ada circular dependency
-import { handleSessionStart } from '../commands/session';
 import { handleExercises } from '../commands/exercise';
+
+// ============================================
+// HELPER: editOrReply
+//
+// Ini solusi untuk error:
+// "Cannot set property message of #<Context> which has only a getter"
+//
+// Kenapa error itu terjadi?
+// ctx.editMessageText() gagal kalau:
+// - Pesan asli sudah lebih dari 48 jam
+// - Pesan sudah dihapus
+// - Context tidak punya message yang bisa diedit
+//
+// Solusi: coba edit dulu, kalau gagal → kirim pesan baru
+// ============================================
+async function editOrReply(
+  ctx: any,
+  text: string,
+  extra?: object
+): Promise<void> {
+  try {
+    await ctx.editMessageText(text, extra);
+  } catch {
+    // Fallback ke reply biasa kalau edit gagal
+    await ctx.reply(text, extra);
+  }
+}
 
 export function registerCallbackHandlers(bot: Telegraf): void {
 
@@ -18,7 +42,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
   bot.action('menu_main', async (ctx) => {
     const firstName = ctx.from?.first_name ?? 'Bro';
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `🏠 *Menu Utama — ${firstName}*\n\n` +
       `Mau ngapain sekarang?`,
       {
@@ -30,7 +55,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
 
   bot.action('menu_weight', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `⚖️ *Log Berat Badan*\n\n` +
       `Kirim perintah ini di chat:\n\n` +
       `\`/weight 72.5\`\n\n` +
@@ -44,7 +70,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
 
   bot.action('menu_workout', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `🏋️ *Pilih Tipe Workout Hari Ini*\n\n` +
       `Tap salah satu untuk langsung mencatat!\n\n` +
       `_Atau ketik \`/workout push 60 high\` untuk data lebih lengkap._`,
@@ -92,7 +119,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
         : weeklyWorkouts <= 6 ? '🔥 Lagi on fire!'
         : '🏆 MINGGU ELITE. Respect!';
 
-      await ctx.editMessageText(
+      await editOrReply(
+        ctx,
         `📊 *Statistik ${firstName}*\n` +
         `━━━━━━━━━━━━━━━━━━\n\n` +
         `${weightDisplay}\n` +
@@ -109,7 +137,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
       );
     } catch (error) {
       console.error('menu_stats callback error:', error);
-      await ctx.editMessageText(
+      await editOrReply(
+        ctx,
         '⚠️ Gagal memuat stats. Coba lagi.',
         backToMenuKeyboard
       );
@@ -118,7 +147,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
 
   bot.action('menu_help', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `❓ *Cara Pakai GymBot*\n\n` +
       `*Perintah dasar:*\n` +
       `⚖️ \`/weight 72.5\` — Log berat badan\n` +
@@ -143,9 +173,10 @@ export function registerCallbackHandlers(bot: Telegraf): void {
 
   bot.action('session_start_menu', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `🏋️ *Mulai Session Baru*\n\n` +
-      `Pilih cara mulai:`,
+      `Pilih split untuk hari ini:`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
@@ -165,31 +196,132 @@ export function registerCallbackHandlers(bot: Telegraf): void {
     );
   });
 
-  // ✅ FIX: Static import — tidak perlu await import() lagi
+  // ============================================
+  // FIX UTAMA: Hapus (ctx as any).message = ...
+  //
+  // Sebelumnya kode ini mencoba SET ctx.message
+  // yang merupakan getter-only → langsung crash!
+  //
+  // Solusi: import sessionService langsung dan
+  // panggil logic-nya tanpa fake message context
+  // ============================================
   const quickSessions = ['push', 'pull', 'legs'];
   quickSessions.forEach((split) => {
     bot.action(`quick_session_${split}`, async (ctx) => {
-      await ctx.answerCbQuery();
-      (ctx as any).message = { text: `/session start ${split}` };
-      await handleSessionStart(ctx);
+      const telegramId = ctx.from?.id;
+      const firstName = ctx.from?.first_name ?? 'Bro';
+
+      if (!telegramId) {
+        await ctx.answerCbQuery('❌ Tidak bisa mendeteksi akun kamu.');
+        return;
+      }
+
+      await ctx.answerCbQuery(`Memulai sesi ${split}...`);
+
+      try {
+        // Import sessionService langsung — tidak perlu fake ctx.message
+        const { startSession } = await import('../services/sessionService');
+        const session = await startSession({ telegram_id: telegramId.toString(), split_name: split });
+
+        await editOrReply(
+          ctx,
+          `🏋️ *Sesi ${split.toUpperCase()} Dimulai!*\n\n` +
+          `Sekarang log exercise kamu:\n` +
+          `\`/log bench press 60 8\`\n\n` +
+          `Format: \`/log [nama exercise] [kg] [reps]\`\n\n` +
+          `Ketik \`/done\` kalau sudah selesai. 💪`,
+          {
+            parse_mode: 'Markdown',
+            ...backToMenuKeyboard,
+          }
+        );
+
+        console.log(`✅ Quick session started: ${split} for user ${telegramId}, session ID: ${session.id}`);
+      } catch (error) {
+        console.error(`quick_session_${split} error:`, error);
+
+        // Cek kalau error-nya karena sudah ada active session
+        const errMsg = (error as Error).message ?? '';
+        if (errMsg.includes('active session')) {
+          await editOrReply(
+            ctx,
+            `⚠️ *Kamu masih punya sesi aktif!*\n\n` +
+            `Selesaikan dulu dengan \`/done\`\n` +
+            `atau cek status dengan \`/session status\``,
+            {
+              parse_mode: 'Markdown',
+              ...backToMenuKeyboard,
+            }
+          );
+        } else {
+          await editOrReply(
+            ctx,
+            `⚠️ Gagal memulai sesi. Coba lagi.`,
+            backToMenuKeyboard
+          );
+        }
+      }
     });
   });
 
   bot.action('quick_session_notag', async (ctx) => {
-    await ctx.answerCbQuery();
-    (ctx as any).message = { text: '/session start' };
-    await handleSessionStart(ctx);
+    const telegramId = ctx.from?.id;
+
+    if (!telegramId) {
+      await ctx.answerCbQuery('❌ Tidak bisa mendeteksi akun kamu.');
+      return;
+    }
+
+    await ctx.answerCbQuery('Memulai sesi...');
+
+    try {
+      const { startSession } = await import('../services/sessionService');
+      await startSession({ telegram_id: telegramId.toString() });
+
+      await editOrReply(
+        ctx,
+        `🏋️ *Sesi Latihan Dimulai!*\n\n` +
+        `Sekarang log exercise kamu:\n` +
+        `\`/log bench press 60 8\`\n\n` +
+        `Format: \`/log [nama exercise] [kg] [reps]\`\n\n` +
+        `Ketik \`/done\` kalau sudah selesai. 💪`,
+        {
+          parse_mode: 'Markdown',
+          ...backToMenuKeyboard,
+        }
+      );
+    } catch (error) {
+      console.error('quick_session_notag error:', error);
+      const errMsg = (error as Error).message ?? '';
+      if (errMsg.includes('active session')) {
+        await editOrReply(
+          ctx,
+          `⚠️ *Kamu masih punya sesi aktif!*\n\n` +
+          `Selesaikan dulu dengan \`/done\``,
+          {
+            parse_mode: 'Markdown',
+            ...backToMenuKeyboard,
+          }
+        );
+      } else {
+        await editOrReply(ctx, `⚠️ Gagal memulai sesi. Coba lagi.`, backToMenuKeyboard);
+      }
+    }
   });
 
-  // ✅ FIX: Static import — tidak perlu await import() lagi
   bot.action('exercises_menu', async (ctx) => {
     await ctx.answerCbQuery();
-    await handleExercises(ctx);
+    try {
+      await handleExercises(ctx);
+    } catch (error) {
+      console.error('exercises_menu error:', error);
+      await editOrReply(ctx, '⚠️ Gagal memuat daftar exercise.', backToMenuKeyboard);
+    }
   });
 
   // ==========================================
-  // WORKOUT QUICK-LOG CALLBACKS (sistem lama)
-  // ⚠️ Masih aktif untuk backward compat
+  // WORKOUT QUICK-LOG (sistem lama)
+  // Tetap aktif untuk backward compatibility
   // ==========================================
 
   const workoutTypes = [
@@ -224,7 +356,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
 
         const hype = workoutHype[type] ?? `🏋️ Sesi ${type.toUpperCase()} berhasil dicatat!`;
 
-        await ctx.editMessageText(
+        await editOrReply(
+          ctx,
           `✅ *Workout Tercatat!*\n\n` +
           `${hype}\n\n` +
           `_Mulai pakai sistem baru: /session start_`,
@@ -235,7 +368,8 @@ export function registerCallbackHandlers(bot: Telegraf): void {
         );
       } catch (error) {
         console.error(`workout_${type} callback error:`, error);
-        await ctx.answerCbQuery('❌ Gagal mencatat. Coba lagi.');
+        // answerCbQuery kedua tidak bisa, pakai reply biasa
+        await ctx.reply('❌ Gagal mencatat workout. Coba lagi.');
       }
     });
   });
