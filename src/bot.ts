@@ -90,6 +90,10 @@ bot.action('ex_filter_machine', (ctx) => callbackExerciseFilter(ctx, 'machine'))
 bot.action('ex_filter_bodyweight', (ctx) => callbackExerciseFilter(ctx, 'bodyweight'));
 bot.action('ex_list_all', callbackExerciseListAll);
 
+// Tambahkan SEBELUM bot.launch()
+bot.catch((err, ctx) => {
+  console.error(`❌ Error pada update ${ctx.updateType}:`, err);
+});
 // ============================================================
 // LAUNCH
 // ============================================================
