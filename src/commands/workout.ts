@@ -2,7 +2,10 @@ import { Context } from 'telegraf';
 import { logWorkout } from '../services/workoutService';
 import { workoutTypeKeyboard, backToMenuKeyboard } from '../keyboards/mainMenu';
 
-// Daftar tipe workout yang valid
+// ⚠️ DEPRECATED — sistem lama
+// Data disimpan ke tabel workout_logs
+// Sistem baru: /session → workout_sessions + session_exercises + exercise_sets
+
 const VALID_WORKOUT_TYPES = [
   'push', 'pull', 'legs', 'upper', 'lower',
   'full body', 'cardio', 'hiit', 'rest',
@@ -10,7 +13,6 @@ const VALID_WORKOUT_TYPES = [
   'core', 'mobility'
 ];
 
-// Daftar intensitas yang valid
 const VALID_INTENSITIES = ['low', 'medium', 'high'];
 
 const workoutHype: Record<string, string> = {
@@ -30,38 +32,48 @@ const workoutHype: Record<string, string> = {
   arms: '💪 Arm day beres! Bisep dan trisep udah dibakar!',
 };
 
-// ============================================
-// /workout <type> [duration] [intensity] [notes]
-//
-// Contoh penggunaan:
-// /workout push                        → minimal
-// /workout push 60                     → + durasi
-// /workout push 60 high                → + intensitas
-// /workout push 60 high latihan_bagus  → + catatan
-// ============================================
 export async function workoutCommand(ctx: Context): Promise<void> {
-  const telegramId = ctx.from?.id;
+  // ✅ DEPRECATION NOTICE
+  // Sistem lama dinonaktifkan — data baru harus masuk ke sistem baru
+  // Kode di bawah return sengaja dibiarkan untuk referensi & kemungkinan restore
+  await ctx.reply(
+    `⚠️ *Perintah /workout sudah tidak aktif.*\n\n` +
+    `Gunakan sistem baru yang lebih lengkap:\n\n` +
+    `🏋️ \`/session start\` — mulai sesi latihan\n` +
+    `📝 \`/log bench press 60 8\` — log set\n` +
+    `✅ \`/done\` — selesaikan sesi\n\n` +
+    `_Data lama kamu tetap tersimpan dengan aman._`,
+    { parse_mode: 'Markdown' }
+  );
+  return;
 
+  // ============================================================
+  // KODE LAMA — DIPERTAHANKAN, TIDAK DIEKSEKUSI
+  // Hapus setelah masa transisi selesai
+  // ============================================================
+
+  const telegramId = ctx.from?.id;
   if (!telegramId) {
     await ctx.reply('⚠️ Tidak bisa mendeteksi akun Telegram kamu.');
     return;
   }
 
-  const message = ctx.message;
-
-  if (!message || !('text' in message)) {
+  const telId: number = telegramId!;
+  const message = ctx.message!;
+  if (!message) {
+    await ctx.reply('⚠️ Kirim pesan teks seperti: /workout push');
+    return;
+  }
+  
+  if (!('text' in message) || typeof (message as any).text !== 'string') {
     await ctx.reply('⚠️ Kirim pesan teks seperti: /workout push');
     return;
   }
 
-  // Parse: "/workout push 60 high felt_strong"
-  // → parts = ["push", "60", "high", "felt_strong"]
-  const parts = message.text.trim().split(/\s+/);
-  parts.shift(); // hapus "/workout"
+  const text = (message as any).text as string;
+  const parts = text.trim().split(/\s+/);
+  parts.shift();
 
-  // ==========================================
-  // PRIORITY 1: Kasus kosong — tampilkan keyboard
-  // ==========================================
   if (parts.length === 0 || !parts[0]) {
     await ctx.reply(
       `🏋️ *Hari ini latihan apa?*\n\n` +
@@ -76,12 +88,8 @@ export async function workoutCommand(ctx: Context): Promise<void> {
     return;
   }
 
-  // Parse workout type
   const workoutType = parts[0].toLowerCase();
 
-  // ==========================================
-  // PRIORITY 1: Validasi tipe workout
-  // ==========================================
   if (!VALID_WORKOUT_TYPES.includes(workoutType)) {
     await ctx.reply(
       `❌ *"${workoutType}" bukan tipe workout yang dikenal.*\n\n` +
@@ -96,46 +104,42 @@ export async function workoutCommand(ctx: Context): Promise<void> {
     return;
   }
 
-  // ==========================================
-  // PRIORITY 3: Parse optional fields
-  // ==========================================
-
-  // Parse duration (parts[1]) — harus berupa angka
   let duration: number | null = null;
-  if (parts[1]) {
-    const parsedDuration = parseInt(parts[1]);
+  const durationStr = parts[1];
+  if (durationStr) {
+    const parsedDuration = parseInt(durationStr, 10);
     if (!isNaN(parsedDuration) && parsedDuration > 0 && parsedDuration <= 600) {
       duration = parsedDuration;
-    } else if (parts[1] && isNaN(parseInt(parts[1]))) {
-      // User skip durasi dan langsung isi intensitas? Tangani gracefully
-      // Contoh: /workout push high → "high" bukan angka, skip duration
     }
   }
 
-  // Parse intensity (parts[2]) — harus 'low', 'medium', atau 'high'
   let intensity: string | null = null;
-  if (parts[2] && VALID_INTENSITIES.includes(parts[2].toLowerCase())) {
-    intensity = parts[2].toLowerCase();
+  const intensityStr = parts[2];
+  if (intensityStr && VALID_INTENSITIES.includes(intensityStr.toLowerCase())) {
+    intensity = intensityStr.toLowerCase();
   }
 
-  // Parse notes (parts[3+]) — gabungkan jadi satu string
-  // Ganti underscore dengan spasi: "felt_strong" → "felt strong"
   let notes: string | null = null;
   if (parts[3]) {
     notes = parts.slice(3).join(' ').replace(/_/g, ' ');
   }
 
   try {
-    await logWorkout(telegramId, workoutType, duration, intensity, notes);
+    await logWorkout(
+      telId, 
+      workoutType, 
+      duration as number | null, 
+      intensity as string | null, 
+      notes as string | null
+    );
 
     const hype = workoutHype[workoutType] ?? `🏋️ Sesi *${workoutType.toUpperCase()}* berhasil dicatat!`;
 
-    // Buat detail summary kalau ada extra info
     let detailLines = '';
     if (duration) detailLines += `\n⏱️ Durasi: *${duration} menit*`;
     if (intensity) {
-      const intensityEmoji = intensity === 'high' ? '🔴' : intensity === 'medium' ? '🟡' : '🟢';
-      detailLines += `\n${intensityEmoji} Intensitas: *${intensity.charAt(0).toUpperCase() + intensity.slice(1)}*`;
+      const intensityEmoji = (intensity as string) === 'high' ? '🔴' : (intensity as string) === 'medium' ? '🟡' : '🟢';
+      detailLines += `\n${intensityEmoji} Intensitas: *${(intensity as string).charAt(0).toUpperCase() + (intensity as string).slice(1)}*`;
     }
     if (notes) detailLines += `\n📝 Catatan: _${notes}_`;
 
