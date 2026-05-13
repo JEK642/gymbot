@@ -19,7 +19,6 @@ export const splitKeyboard = Markup.inlineKeyboard([
   [
     Markup.button.callback('📝 Tanpa Split', 'wf_split:general'),
   ],
-  // BARU: tombol tambah split custom
   [
     Markup.button.callback('➕ Tambah Split', 'wf_add_split'),
   ],
@@ -28,40 +27,66 @@ export const splitKeyboard = Markup.inlineKeyboard([
   ],
 ]);
 
-// ── Screen 2: Exercise Selection (dinamis) ────
-export function buildExerciseKeyboard(exercises: Exercise[], splitName: string) {
+// ── Screen 2: Exercise Selection ──────────────
+// exercises = gabungan default (5) + custom milik user
+export function buildExerciseKeyboard(
+  defaultExercises: Exercise[],
+  customExercises: Exercise[],
+  splitName: string
+) {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
 
-  // Max 8 exercise (2 kolom × 4 baris) — sesuai tugas
-  const displayExercises = exercises.slice(0, 8);
-
-  for (let i = 0; i < displayExercises.length; i += 2) {
+  // ── Default exercises: max 5, 2 per baris ──
+  const defaults = defaultExercises.slice(0, 5);
+  for (let i = 0; i < defaults.length; i += 2) {
     const row = [
       Markup.button.callback(
-        truncateName(displayExercises[i].name),
-        `wf_ex:${displayExercises[i].id}`
+        truncateName(defaults[i].name),
+        `wf_ex:${defaults[i].id}`
       ),
     ];
-    if (displayExercises[i + 1]) {
+    if (defaults[i + 1]) {
       row.push(
         Markup.button.callback(
-          truncateName(displayExercises[i + 1].name),
-          `wf_ex:${displayExercises[i + 1].id}`
+          truncateName(defaults[i + 1].name),
+          `wf_ex:${defaults[i + 1].id}`
         )
       );
     }
     rows.push(row);
   }
 
-  // BARU: tombol tambah exercise custom
+  // ── Separator visual kalau ada custom exercise ──
+  if (customExercises.length > 0) {
+    // Custom exercises: semua tampil, 2 per baris
+    for (let i = 0; i < customExercises.length; i += 2) {
+      const row = [
+        Markup.button.callback(
+          `⭐ ${truncateName(customExercises[i].name)}`,
+          `wf_ex:${customExercises[i].id}`
+        ),
+      ];
+      if (customExercises[i + 1]) {
+        row.push(
+          Markup.button.callback(
+            `⭐ ${truncateName(customExercises[i + 1].name)}`,
+            `wf_ex:${customExercises[i + 1].id}`
+          )
+        );
+      }
+      rows.push(row);
+    }
+  }
+
+  // ── Tombol kelola exercise ──
   rows.push([
-    Markup.button.callback('➕ Tambah Exercise', 'wf_add_exercise'),
+    Markup.button.callback('⚙️ Kelola Exercise', 'em_open'),
   ]);
 
-  // Navigasi bawah
+  // ── Navigasi bawah ──
   rows.push([
     Markup.button.callback('🔙 Ganti Split', 'wf_start'),
-    Markup.button.callback('🏠 Home', 'menu_main'),
+    Markup.button.callback('🏠 Home',        'menu_main'),
   ]);
 
   return Markup.inlineKeyboard(rows);
@@ -89,40 +114,32 @@ export function buildRepsKeyboard(exerciseName: string, weight: number) {
     ],
     [
       Markup.button.callback('🔙 Ubah Berat', 'wf_back_weight'),
-      Markup.button.callback('❌ Cancel', 'wf_cancel'),
+      Markup.button.callback('❌ Cancel',      'wf_cancel'),
     ],
   ]);
 }
 
-// ── Screen 4: Set Logged Actions ──────────────
+// ── Screen 4: Set Logged ──────────────────────
 export const setLoggedKeyboard = Markup.inlineKeyboard([
-  [
-    Markup.button.callback('➕ Set Lagi', 'wf_addset'),
-  ],
-  [
-    Markup.button.callback('🏋️ Exercise Lain', 'wf_newex'),
-  ],
-  [
-    Markup.button.callback('✅ Selesai Latihan', 'wf_finish'),
-  ],
-  [
-    Markup.button.callback('🏠 Home', 'menu_main'),
-  ],
+  [Markup.button.callback('➕ Set Lagi',       'wf_addset')],
+  [Markup.button.callback('🏋️ Exercise Lain', 'wf_newex')],
+  [Markup.button.callback('✅ Selesai Latihan','wf_finish')],
+  [Markup.button.callback('🏠 Home',           'menu_main')],
 ]);
 
-// ── Screen 5: Active Session Quick Actions ────
+// ── Screen 5: Active Session ──────────────────
 export const activeSessionKeyboard = Markup.inlineKeyboard([
   [
-    Markup.button.callback('➕ Log Set', 'wf_newex'),
-    Markup.button.callback('✅ Selesai', 'wf_finish'),
+    Markup.button.callback('➕ Log Set',    'wf_newex'),
+    Markup.button.callback('✅ Selesai',   'wf_finish'),
   ],
   [
-    Markup.button.callback('📊 Status Sesi', 'wf_status'),
-    Markup.button.callback('❌ Batalkan Sesi', 'wf_cancel_session'),
+    Markup.button.callback('📊 Status',          'wf_status'),
+    Markup.button.callback('❌ Batalkan Sesi',   'wf_cancel_session'),
   ],
 ]);
 
-// ── Cancel keyboard universal ─────────────────
+// ── Cancel keyboards ──────────────────────────
 export const cancelKeyboard = Markup.inlineKeyboard([
   [
     Markup.button.callback('🔙 Back', 'wf_start'),
@@ -130,12 +147,11 @@ export const cancelKeyboard = Markup.inlineKeyboard([
   ],
 ]);
 
-// ── Cancel keyboard dengan tombol tunggal ─────
-// Dipakai saat user diminta ketik sesuatu
 export const cancelOnlyKeyboard = Markup.inlineKeyboard([
   [Markup.button.callback('❌ Cancel', 'wf_cancel')],
 ]);
 
-function truncateName(name: string, max = 18): string {
+// ── Helper ────────────────────────────────────
+function truncateName(name: string, max = 16): string {
   return name.length > max ? name.slice(0, max - 1) + '…' : name;
 }

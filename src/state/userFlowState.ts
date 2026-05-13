@@ -1,5 +1,3 @@
-// src/state/userFlowState.ts
-
 export type FlowStep =
   | 'idle'
   | 'selecting_split'
@@ -7,9 +5,11 @@ export type FlowStep =
   | 'entering_weight'
   | 'entering_reps'
   | 'set_logged'
-  | 'entering_custom_exercise'  // BARU: user ketik nama exercise manual
-  | 'entering_custom_split'     // BARU: user ketik nama split manual
-  | 'entering_weight_log';      // BARU: user log berat badan dari menu
+  | 'entering_custom_exercise'
+  | 'entering_custom_split'
+  | 'entering_weight_log'
+  | 'managing_exercises'      // BARU: di menu ⚙️ Kelola Exercise
+  | 'deleting_exercise';      // BARU: user pilih exercise yang mau dihapus
 
 export interface UserFlowState {
   step: FlowStep;
@@ -45,8 +45,6 @@ export function clearFlowState(telegramId: number): void {
   states.delete(telegramId);
 }
 
-// Cek apakah user sedang nunggu input teks
-// DIUPDATE: tambah 3 step baru
 export function isWaitingForInput(telegramId: number): boolean {
   const { step } = getFlowState(telegramId);
   return (

@@ -7,14 +7,14 @@ import {
   isWaitingForInput,
 } from '../state/userFlowState';
 import { buildRepsKeyboard, cancelOnlyKeyboard } from '../keyboards/workoutFlow';
+import { emCancelKeyboard } from '../keyboards/exerciseManage';
 import { backToMenuKeyboard } from '../keyboards/mainMenu';
-import { processRepsInput } from './workoutFlowHandler';
+import { processRepsInput, showExerciseSelection } from './workoutFlowHandler';
 import { supabase } from '../config/supabase';
 
 export async function handleTextInput(ctx: Context): Promise<boolean> {
   const telegramId = ctx.from?.id;
   if (!telegramId) return false;
-
   if (!isWaitingForInput(telegramId)) return false;
 
   const message = ctx.message;
@@ -24,20 +24,14 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
   const input = message.text.trim();
   const state = getFlowState(telegramId);
 
-  // ── Case 1: Menunggu input berat workout ────
+  // ── Case 1: Input berat workout ─────────────
   if (state.step === 'entering_weight') {
     const weight = parseFloat(input);
-
     if (isNaN(weight) || weight <= 0 || weight > 500) {
-      await ctx.reply(
-        `❌ *"${input}" bukan angka yang valid.*\n\nKetik berat dalam kg, contoh: \`80\` atau \`82.5\``,
-        { parse_mode: 'Markdown' }
-      );
+      await ctx.reply(`❌ Angka tidak valid. Contoh: \`80\` atau \`82.5\``, { parse_mode: 'Markdown' });
       return true;
     }
-
     updateFlowState(telegramId, { step: 'entering_reps', pendingWeight: weight });
-
     await ctx.reply(
       `🏋️ *${state.exerciseName}*\n⚖️ ${weight} kg\n\n💪 Berapa reps?`,
       { parse_mode: 'Markdown', ...buildRepsKeyboard(state.exerciseName ?? '', weight) }
@@ -45,89 +39,103 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // ── Case 2: Menunggu input reps custom ──────
+  // ── Case 2: Input reps custom ────────────────
   if (state.step === 'entering_reps') {
     const reps = parseInt(input);
-
     if (isNaN(reps) || reps <= 0 || reps > 200) {
-      await ctx.reply(
-        `❌ *"${input}" bukan angka yang valid.*\n\nKetik jumlah reps, contoh: \`8\``,
-        { parse_mode: 'Markdown' }
-      );
+      await ctx.reply(`❌ Angka tidak valid. Contoh: \`8\``, { parse_mode: 'Markdown' });
       return true;
     }
-
     await processRepsInput(ctx, reps);
     return true;
   }
 
-  // ── Case 3: BARU — Menunggu nama exercise baru ──
+  // ── Case 3: Input nama exercise custom ───────
   if (state.step === 'entering_custom_exercise') {
     const exerciseName = input;
 
-    // Validasi panjang nama
     if (exerciseName.length < 2 || exerciseName.length > 50) {
-      await ctx.reply(
-        `❌ Nama exercise harus antara 2–50 karakter.\n\nCoba lagi:`,
-        { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
-      );
+      await ctx.reply(`❌ Nama exercise 2–50 karakter. Coba lagi:`, emCancelKeyboard);
       return true;
     }
 
     try {
-      // Simpan ke tabel exercises dengan is_default=false
+      // Cek dulu apakah nama sudah ada (milik user ini atau default)
+      const { data: existing } = await supabase
+        .from('exercises')
+        .select('id, name, is_active')
+        .ilike('name', exerciseName)
+        .or(`created_by.eq.${telegramId},is_default.eq.true`)
+        .single();
+
+      if (existing) {
+        // Sudah ada — kalau inactive, aktifkan lagi
+        if (!existing.is_active) {
+          await supabase
+            .from('exercises')
+            .update({ is_active: true })
+            .eq('id', existing.id);
+        }
+
+        // Langsung pakai exercise ini
+        updateFlowState(telegramId, {
+          step: state.sessionId ? 'entering_weight' : 'selecting_exercise',
+          exerciseId: existing.id,
+          exerciseName: existing.name,
+          currentSetNumber: 1,
+        });
+
+        const msg = existing.is_active
+          ? `ℹ️ *${existing.name}* sudah ada — langsung dipilih!`
+          : `✅ *${existing.name}* diaktifkan kembali!`;
+
+        if (state.sessionId) {
+          await ctx.reply(
+            `${msg}\n\n⚖️ Berapa beratnya? *(kg)*`,
+            { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
+          );
+        } else {
+          await ctx.reply(msg, { parse_mode: 'Markdown' });
+        }
+        return true;
+      }
+
+      // Belum ada — insert baru
       const { data: newExercise, error } = await supabase
         .from('exercises')
         .insert({
           name: exerciseName,
           is_default: false,
-          created_by: telegramId.toString(),
+          is_active: true,
+          created_by: telegramId,
         })
         .select('id, name')
         .single();
 
-      if (error) {
-        // Kalau nama sudah ada, coba ambil yang existing
-        if (error.code === '23505') {
-          const { data: existing } = await supabase
-            .from('exercises')
-            .select('id, name')
-            .ilike('name', exerciseName)
-            .single();
+      if (error || !newExercise) throw error;
 
-          if (existing) {
-            // Pakai exercise yang sudah ada
-            updateFlowState(telegramId, {
-              step: 'entering_weight',
-              exerciseId: existing.id,
-              exerciseName: existing.name,
-              currentSetNumber: 1,
-            });
-
-            await ctx.reply(
-              `ℹ️ *${existing.name}* sudah ada di database.\n\n⚖️ Berapa beratnya? *(kg)*\n\nKetik angka saja → contoh: \`60\``,
-              { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
-            );
-            return true;
-          }
-        }
-        throw error;
+      // Kalau sedang dalam session → langsung ke entering_weight
+      if (state.sessionId) {
+        updateFlowState(telegramId, {
+          step: 'entering_weight',
+          exerciseId: newExercise.id,
+          exerciseName: newExercise.name,
+          currentSetNumber: 1,
+        });
+        await ctx.reply(
+          `✅ *${newExercise.name}* ditambahkan!\n\n⚖️ Berapa beratnya? *(kg)*`,
+          { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
+        );
+      } else {
+        // Tidak dalam session → kembali ke manage menu
+        updateFlowState(telegramId, { step: 'managing_exercises' });
+        const { exerciseManageKeyboard } = require('../keyboards/exerciseManage');
+        await ctx.reply(
+          `✅ *${newExercise.name}* ditambahkan!\n\nExercise ini akan muncul di menu latihan berikutnya.`,
+          { parse_mode: 'Markdown', ...exerciseManageKeyboard }
+        );
       }
 
-      if (!newExercise) throw new Error('Exercise tidak tersimpan');
-
-      // Lanjut ke entering_weight untuk exercise baru ini
-      updateFlowState(telegramId, {
-        step: 'entering_weight',
-        exerciseId: newExercise.id,
-        exerciseName: newExercise.name,
-        currentSetNumber: 1,
-      });
-
-      await ctx.reply(
-        `✅ *${newExercise.name}* berhasil ditambahkan!\n\n⚖️ Berapa beratnya? *(kg)*\n\nKetik angka saja → contoh: \`60\``,
-        { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
-      );
     } catch (error) {
       console.error('entering_custom_exercise error:', error);
       await ctx.reply('⚠️ Gagal menyimpan exercise. Coba lagi.');
@@ -136,34 +144,28 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // ── Case 4: BARU — Menunggu nama split baru ─
+  // ── Case 4: Input nama split custom ──────────
   if (state.step === 'entering_custom_split') {
     const splitName = input;
 
     if (splitName.length < 2 || splitName.length > 30) {
-      await ctx.reply(
-        `❌ Nama split harus antara 2–30 karakter.\n\nCoba lagi:`,
-        { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
-      );
+      await ctx.reply(`❌ Nama split 2–30 karakter. Coba lagi:`, cancelOnlyKeyboard);
       return true;
     }
 
     try {
-      // Simpan ke tabel splits
       const { data: newSplit, error } = await supabase
         .from('splits')
         .insert({
           name: splitName,
           is_default: false,
-          created_by: telegramId.toString(),
+          created_by: telegramId,
         })
         .select('id, name')
         .single();
 
-      if (error) throw error;
-      if (!newSplit) throw new Error('Split tidak tersimpan');
+      if (error || !newSplit) throw error;
 
-      // Buat workout session dengan split baru ini
       const { data: session, error: sessionError } = await supabase
         .from('workout_sessions')
         .insert({
@@ -178,31 +180,14 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
       if (sessionError || !session) throw new Error('Gagal membuat sesi');
 
-      // Update state: masuk ke selecting_exercise dengan split baru
-      // Pakai 'general' sebagai fallback untuk exercise list
       updateFlowState(telegramId, {
         step: 'selecting_exercise',
         sessionId: session.id,
         splitName: newSplit.name,
       });
 
-      // Tampilkan exercise general sebagai default untuk split custom
-      const { buildExerciseKeyboard } = require('../keyboards/workoutFlow');
-      const { data: exercises } = await supabase
-        .from('exercises')
-        .select('id, name')
-        .in('name', [
-          'Bench Press', 'Squat', 'Deadlift', 'Pull-up',
-          'Shoulder Press', 'Bicep Curl', 'Tricep Pushdown', 'Leg Press',
-        ]);
+      await showExerciseSelection(ctx as any, telegramId, 'general', newSplit.name.toUpperCase());
 
-      await ctx.reply(
-        `✅ Split *${newSplit.name}* berhasil ditambahkan!\n\n🏋️ Pilih exercise:`,
-        {
-          parse_mode: 'Markdown',
-          ...buildExerciseKeyboard(exercises ?? [], newSplit.name),
-        }
-      );
     } catch (error) {
       console.error('entering_custom_split error:', error);
       await ctx.reply('⚠️ Gagal menyimpan split. Coba lagi.');
@@ -211,21 +196,16 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // ── Case 5: BARU — Menunggu input berat badan ──
+  // ── Case 5: Input berat badan ────────────────
   if (state.step === 'entering_weight_log') {
     const weight = parseFloat(input);
 
-    // Validasi range berat badan manusia yang masuk akal
     if (isNaN(weight) || weight < 20 || weight > 400) {
-      await ctx.reply(
-        `❌ *"${input}" tidak valid.*\n\nMasukkan berat dalam kg (20–400).\n\nContoh: \`72.5\``,
-        { parse_mode: 'Markdown' }
-      );
+      await ctx.reply(`❌ Berat tidak valid (20–400 kg). Contoh: \`72.5\``, { parse_mode: 'Markdown' });
       return true;
     }
 
     try {
-      // Simpan ke weight_logs
       const { error } = await supabase
         .from('weight_logs')
         .insert({
@@ -236,11 +216,12 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
       if (error) throw error;
 
-      // Bersihkan state
       clearFlowState(telegramId);
 
       await ctx.reply(
-        `✅ *Berat Tercatat!*\n\n⚖️ ${weight} kg\n📅 ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\n_Konsistensi adalah kunci._ 💪`,
+        `✅ *Berat Tercatat!*\n\n⚖️ ${weight} kg\n📅 ${new Date().toLocaleDateString('id-ID', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        })}\n\n_Konsistensi adalah kunci._ 💪`,
         { parse_mode: 'Markdown', ...backToMenuKeyboard }
       );
     } catch (error) {

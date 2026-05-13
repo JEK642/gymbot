@@ -5,6 +5,8 @@ import { workoutCommand } from './commands/workout';
 import { statsCommand } from './commands/stats';
 import { registerCallbackHandlers } from './handlers/callbackHandler';
 import { confirmDoneKeyboard } from './keyboards/sessionMenu';
+import { registerExerciseManageHandlers } from './handlers/exerciseManageHandler';
+
 
 // ── Session commands (sistem lama) ───────────
 import {
@@ -103,6 +105,7 @@ bot.action('ex_list_all', callbackExerciseListAll);
 // ── 4. NEW: Tap-based workout flow ────────────
 // Didaftarkan SETELAH callbacks lama supaya tidak konflik
 registerWorkoutFlowHandlers(bot);
+registerExerciseManageHandlers(bot);
 
 // ============================================================
 // TEXT HANDLER
