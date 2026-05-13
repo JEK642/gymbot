@@ -1,3 +1,7 @@
+// start.ts
+// Command /start — entry point utama bot
+// Update: tambah info command session baru di welcome message
+
 import { Context } from 'telegraf';
 import { registerUser } from '../services/userService';
 import { mainMenuKeyboard } from '../keyboards/mainMenu';
@@ -15,13 +19,20 @@ export async function startCommand(ctx: Context): Promise<void> {
   try {
     await registerUser(telegramId, username);
 
-    // Kirim welcome message + inline keyboard
-    // mainMenuKeyboard menggunakan spread operator (...) karena
-    // Telegraf butuh format { reply_markup: ... }
     await ctx.reply(
       `💪 *Selamat datang di GymBot, ${firstName}!*\n\n` +
-      `Mulai perjalanan gym kamu di sini.\n\n` +
-      `_Pilih menu di bawah atau ketik command langsung:_`,
+      `Tracker gym kamu — log session, exercise, dan PR dalam satu tempat.\n\n` +
+      `*🏋️ Workout Session:*\n` +
+      `\`/session start\` — mulai session baru\n` +
+      `\`/session start push\` — dengan tag split\n` +
+      `\`/session status\` — lihat progress session\n` +
+      `\`/log bench press 60 8\` — log set exercise\n` +
+      `\`/done\` — selesaikan session\n\n` +
+      `*📋 Lainnya:*\n` +
+      `\`/exercises\` — daftar exercise tersedia\n` +
+      `\`/weight 72.5\` — log berat badan\n` +
+      `\`/stats\` — statistik kamu\n\n` +
+      `_Atau gunakan menu di bawah untuk mulai:_`,
       {
         parse_mode: 'Markdown',
         ...mainMenuKeyboard,

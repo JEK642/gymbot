@@ -1,32 +1,28 @@
-import { Markup } from 'telegraf';
+// mainMenu.ts
+// Update: tambah tombol Session dan Exercises untuk fitur baru
 
-// ============================================
-// PENJELASAN: Inline Keyboard di Telegram
-//
-// Ada 2 jenis keyboard di Telegraf:
-// 1. ReplyKeyboard → muncul di bawah chat (kayak keyboard)
-// 2. InlineKeyboard → muncul di dalam chat bubble (lebih modern)
-//
-// Kita pakai InlineKeyboard karena:
-// - Lebih clean & modern
-// - Tidak ganggu input field user
-// - Bisa diedit/dihapus setelah dikirim
-// - Tiap button punya "callback_data" yang dikirim ke bot
-// ============================================
+import { Markup } from 'telegraf';
 
 // Main menu — muncul setelah /start
 export const mainMenuKeyboard = Markup.inlineKeyboard([
+  // Baris 1: fitur session baru
   [
-    Markup.button.callback('⚖️ Log Berat', 'menu_weight'),
-    Markup.button.callback('🏋️ Log Workout', 'menu_workout'),
+    Markup.button.callback('🏋️ Mulai Session', 'session_start_menu'),
+    Markup.button.callback('📊 Status Session', 'session_status'),
   ],
+  // Baris 2: log cepat & exercises
   [
-    Markup.button.callback('📊 Lihat Stats', 'menu_stats'),
+    Markup.button.callback('📋 Daftar Exercise', 'exercises_menu'),
+    Markup.button.callback('⚖️ Log Berat', 'menu_weight'),
+  ],
+  // Baris 3: stats & bantuan
+  [
+    Markup.button.callback('📈 Stats', 'menu_stats'),
     Markup.button.callback('❓ Bantuan', 'menu_help'),
   ],
 ]);
 
-// Workout type selector — muncul saat klik "Log Workout"
+// Workout type selector — muncul saat klik "Log Workout" (sistem lama, tetap dipertahankan)
 export const workoutTypeKeyboard = Markup.inlineKeyboard([
   [
     Markup.button.callback('💪 Push', 'workout_push'),
@@ -48,12 +44,11 @@ export const workoutTypeKeyboard = Markup.inlineKeyboard([
     Markup.button.callback('🧘 Mobility', 'workout_mobility'),
   ],
   [
-    // Tombol kembali ke main menu
     Markup.button.callback('🔙 Menu Utama', 'menu_main'),
   ],
 ]);
 
-// Tombol "kembali ke menu" — dipakai di berbagai tempat
+// Tombol kembali ke menu — dipakai di berbagai tempat
 export const backToMenuKeyboard = Markup.inlineKeyboard([
   [Markup.button.callback('🏠 Menu Utama', 'menu_main')],
 ]);

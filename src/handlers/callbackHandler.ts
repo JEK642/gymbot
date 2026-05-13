@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, Markup } from 'telegraf';
 import { mainMenuKeyboard, workoutTypeKeyboard, backToMenuKeyboard } from '../keyboards/mainMenu';
 import { logWorkout } from '../services/workoutService';
 import { getLatestWeight } from '../services/weightService';
@@ -151,6 +151,65 @@ export function registerCallbackHandlers(bot: Telegraf): void {
         ...backToMenuKeyboard,
       }
     );
+  });
+
+  // ============================================================
+// TAMBAHKAN INI di dalam registerCallbackHandlers(bot) 
+// di file src/handlers/callbackHandler.ts
+// Taruh setelah handler 'menu_help' yang sudah ada
+// ============================================================
+
+  // Tombol "🏋️ Mulai Session" di main menu
+  // Tampilkan pilihan split atau langsung start
+  bot.action('session_start_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `🏋️ *Mulai Session Baru*\n\n` +
+      `Pilih cara mulai:`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback('🔥 Push', 'quick_session_push'),
+            Markup.button.callback('💪 Pull', 'quick_session_pull'),
+            Markup.button.callback('🦵 Legs', 'quick_session_legs'),
+          ],
+          [
+            Markup.button.callback('📝 Tanpa Tag', 'quick_session_notag'),
+          ],
+          [
+            Markup.button.callback('🏠 Menu Utama', 'menu_main'),
+          ],
+        ]),
+      }
+    );
+  });
+
+  // Quick session start dari tombol split
+  const quickSessions = ['push', 'pull', 'legs'];
+  quickSessions.forEach((split) => {
+    bot.action(`quick_session_${split}`, async (ctx) => {
+      await ctx.answerCbQuery();
+      // Simulasikan /session start [split] via handler langsung
+      const { handleSessionStart } = await import('../commands/session');
+      // Override ctx.message.text supaya handler bisa parse split_name
+      (ctx as any).message = { text: `/session start ${split}` };
+      await handleSessionStart(ctx);
+    });
+  });
+
+  bot.action('quick_session_notag', async (ctx) => {
+    await ctx.answerCbQuery();
+    const { handleSessionStart } = await import('../commands/session');
+    (ctx as any).message = { text: '/session start' };
+    await handleSessionStart(ctx);
+  });
+
+  // Tombol "📋 Daftar Exercise" di main menu
+  bot.action('exercises_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    const { handleExercises } = await import('../commands/exercise');
+    await handleExercises(ctx);
   });
 
   // ==========================================
