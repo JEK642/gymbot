@@ -42,8 +42,8 @@ async function getExercisesForSplit(splitName: string) {
   // Daftar exercise per split — hanya yang orang awam kenal
   const splitExercises: Record<string, string[]> = {
     push: [
-      'Bench Press', 'Incline Bench Press', 'Push-up', 'Dips',
-      'Shoulder Press', 'Lateral Raise', 'Tricep Pushdown', 'Skull Crusher',
+      'Bench Press', 'Incline Bench Press', 'Dumbbell Press', 'Dumbbell Shoulder Press',
+      'Shoulder Press', 'Lateral Raise', 'Chest Fly', 'Dips',
     ],
     pull: [
       'Pull-up', 'Lat Pulldown', 'Barbell Row', 'Seated Cable Row',
