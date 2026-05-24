@@ -29,7 +29,6 @@ export const splitKeyboard = Markup.inlineKeyboard([
 ]);
 
 // ── Screen 2: Exercise Selection ──────────────
-// PHASE 2: pakai shortExerciseName — tidak ada ellipsis, label lebih bersih
 export function buildExerciseKeyboard(
   defaultExercises: Exercise[],
   customExercises: Exercise[],
@@ -85,16 +84,27 @@ export function buildExerciseKeyboard(
   return Markup.inlineKeyboard(rows);
 }
 
-// ── Screen 3: Set Logged — grid 2×2 kompak ───
-// PHASE 2: label pendek, 2 baris maksimal
+// ── Screen 3a: Set Logged — WITH repeat (ada last set) ──
+// PHASE 3: Repeat sebagai aksi pertama & paling menonjol
 export const setLoggedKeyboard = Markup.inlineKeyboard([
   [
-    Markup.button.callback('➕ Set',      'wf_addset'),
-    Markup.button.callback('🔁 Exercise', 'wf_newex'),
+    Markup.button.callback('🔁 Repeat',   'wf_repeat'),
+    Markup.button.callback('➕ New Set',  'wf_addset'),
+  ],
+  [
+    Markup.button.callback('🏋 Exercise', 'wf_newex'),
+    Markup.button.callback('✅ Finish',   'wf_finish'),
+  ],
+]);
+
+// ── Screen 3b: Set Logged — tanpa repeat (set pertama, belum ada last) ──
+export const setLoggedFirstKeyboard = Markup.inlineKeyboard([
+  [
+    Markup.button.callback('➕ New Set',  'wf_addset'),
+    Markup.button.callback('🏋 Exercise', 'wf_newex'),
   ],
   [
     Markup.button.callback('✅ Finish',   'wf_finish'),
-    Markup.button.callback('🏠 Home',     'menu_main'),
   ],
 ]);
 

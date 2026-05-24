@@ -10,6 +10,7 @@ import {
   splitKeyboard,
   buildExerciseKeyboard,
   setLoggedKeyboard,
+  setLoggedFirstKeyboard,
   activeSessionKeyboard,
   cancelKeyboard,
   cancelOnlyKeyboard,
@@ -32,13 +33,14 @@ async function editOrReply(ctx: any, text: string, extra?: object): Promise<void
 }
 
 // ============================================
-// PHASE 2: getSessionHeader
-// Satu baris ringkas — ditempel di atas prompt utama.
-// Contoh: "📊 PUSH • 2 EX • 5 SETS"
+// PHASE 3: getSessionHeader
+// Compact session status — ditampilkan di setiap interaksi penting.
+// Contoh: "🏋 PUSH • 3 EX • 9 SETS • 28 MIN"
 // ============================================
 async function getSessionHeader(
   sessionId: string,
-  splitName: string
+  splitName: string,
+  sessionStartedAt?: string
 ): Promise<string> {
   const [{ count: exCount }, { count: setCount }] = await Promise.all([
     supabase
@@ -52,21 +54,115 @@ async function getSessionHeader(
   ]);
 
   const label = splitName.replace(/_/g, ' ').toUpperCase();
-  return `📊 ${label} • ${exCount ?? 0} EX • ${setCount ?? 0} SETS`;
+
+  // Elapsed time — pakai snapshot dari state kalau ada (hemat DB call)
+  let timeText = '';
+  if (sessionStartedAt) {
+    const elapsed = Math.round(
+      (Date.now() - new Date(sessionStartedAt).getTime()) / 60000
+    );
+    timeText = ` • ${elapsed} MIN`;
+  }
+
+  return `🏋 ${label} • ${exCount ?? 0} EX • ${setCount ?? 0} SETS${timeText}`;
 }
 
 // ============================================
-// PHASE 2: buildSetPrompt
-// Set 1  → tampilkan format hint (sekali saja)
-// Set 2+ → hanya nama + nomor set, no clutter
+// PHASE 3: getExerciseFocus
+// Tampilkan last set + PR untuk exercise yang dipilih.
+// Dipakai saat user memilih exercise — bukan saat input set.
+// ============================================
+async function getExerciseFocus(
+  telegramId: number,
+  exerciseId: string,
+  exerciseName: string,
+  sessionId: string,
+  splitName: string,
+  sessionStartedAt?: string
+): Promise<string> {
+  const header = await getSessionHeader(sessionId, splitName, sessionStartedAt);
+
+  // Last PR dari semua waktu
+  const { data: pr } = await supabase
+    .from('personal_records')
+    .select('weight_kg, reps')
+    .eq('telegram_id', telegramId)
+    .eq('exercise_id', exerciseId)
+    .order('estimated_1rm', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Last set dari session ini (untuk konteks progress hari ini)
+  const { data: lastSetInSession } = await supabase
+    .from('exercise_sets')
+    .select('weight_kg, reps, session_exercises!inner(session_id, exercise_id)')
+    .eq('session_exercises.session_id', sessionId)
+    .eq('session_exercises.exercise_id', exerciseId)
+    .order('set_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let lines = `_${header}_\n\n🏋 *${exerciseName}*\n`;
+
+  if (lastSetInSession) {
+    lines += `Last: ${lastSetInSession.weight_kg} × ${lastSetInSession.reps}\n`;
+  }
+
+  if (pr) {
+    lines += `PR: ${pr.weight_kg} × ${pr.reps}\n`;
+  }
+
+  lines += `\nInput: \`80x6\``;
+
+  return lines;
+}
+
+// ============================================
+// PHASE 3: buildSetPrompt
+// Set 1 dengan exercise focus (last + PR).
+// Set 2+ compact — hanya nama + nomor + last set hint.
 // ============================================
 function buildSetPrompt(
   exerciseName: string,
   setNumber: number,
-  sessionHeader: string
+  sessionHeader: string,
+  lastWeight?: number,
+  lastReps?: number
 ): string {
-  const hint = setNumber === 1 ? `\n\`80x6\`` : '';
-  return `_${sessionHeader}_\n\n🏋 *${exerciseName}* • Set ${setNumber}${hint}`;
+  if (setNumber === 1) {
+    // Set pertama: tampilkan hint input
+    return `_${sessionHeader}_\n\n🏋 *${exerciseName}* • Set ${setNumber}\n\`80x6\``;
+  }
+
+  // Set 2+: tampilkan last set sebagai konteks
+  const lastHint = lastWeight && lastReps
+    ? `\nLast: ${lastWeight} × ${lastReps}`
+    : '';
+
+  return `_${sessionHeader}_\n\n🏋 *${exerciseName}* • Set ${setNumber}${lastHint}`;
+}
+
+// ============================================
+// PHASE 3: getMotivationBadge
+// Feedback minimal — hanya untuk momen penting.
+// Tidak spam, tidak setiap set.
+// ============================================
+function getMotivationBadge(
+  isPR: boolean,
+  setNumber: number,
+  weight: number,
+  lastWeight?: number
+): string {
+  if (isPR) return ' 🔥 PR';
+
+  // Volume naik dari set sebelumnya (signifikan)
+  if (lastWeight && weight > lastWeight) return ' 📈';
+
+  // Milestone set
+  if (setNumber === 5) return ' ⚡';
+  if (setNumber === 10) return ' 💪';
+
+  return '';
 }
 
 // ============================================
@@ -137,7 +233,7 @@ async function getExercisesForSplit(
     .eq('is_active', true);
 
   const defaultExercises = names
-    .map(name => defaultData?.find(ex => ex.name === name))
+    .map(name => defaultData?.find((ex: any) => ex.name === name))
     .filter(Boolean) as any[];
 
   const { data: customData } = await supabase
@@ -256,10 +352,11 @@ async function getNextSetNumber(sessionExerciseId: string): Promise<number> {
 }
 
 // ============================================
-// PHASE 2: processSetInput
-// Success card jauh lebih kompak dari Phase 1.
-//   ✅ *Bench Press*
-//   80 × 6 • Set 1 🏆
+// PHASE 3: processSetInput
+// - Simpan lastWeight + lastReps ke state (untuk repeat)
+// - Motivation badge (PR / volume naik / milestone)
+// - Set pertama: pakai setLoggedFirstKeyboard (tanpa repeat)
+// - Set 2+: pakai setLoggedKeyboard (dengan repeat di posisi 1)
 // ============================================
 export async function processSetInput(
   ctx: any,
@@ -298,18 +395,27 @@ export async function processSetInput(
 
     const nextSetNumber = await getNextSetNumber(sessionExerciseId);
 
+    // PHASE 3: motivation badge — minimal, hanya momen penting
+    const badge = getMotivationBadge(isPR, setNumber, weight, state.lastWeight);
+
+    // PHASE 3: simpan lastWeight + lastReps ke state untuk repeat
     updateFlowState(telegramId, {
       step: 'set_logged',
       sessionExerciseId,
       currentSetNumber: nextSetNumber,
+      lastWeight: weight,
+      lastReps: reps,
     });
 
-    // PHASE 2: compact success card — 2 baris, tidak ada kalimat panjang
-    const prBadge = isPR ? ` 🏆` : '';
+    // PHASE 3: keyboard berbeda tergantung apakah ini set 1 atau 2+
+    // Set 1 = belum ada "last set" → tidak perlu repeat button
+    // Set 2+ = ada last set → repeat adalah aksi utama
+    const keyboard = setNumber === 1 ? setLoggedFirstKeyboard : setLoggedKeyboard;
+
     await editOrReply(
       ctx,
-      `✅ *${state.exerciseName}*\n${weight} × ${reps} • Set ${setNumber}${prBadge}`,
-      { parse_mode: 'Markdown', ...setLoggedKeyboard }
+      `✅ *${state.exerciseName}*\n${weight} × ${reps} • Set ${setNumber}${badge}`,
+      { parse_mode: 'Markdown', ...keyboard }
     );
 
   } catch (error) {
@@ -320,14 +426,15 @@ export async function processSetInput(
 
 // ============================================
 // showExerciseSelection
-// PHASE 2: sertakan session header di atas daftar exercise
+// PHASE 3: tetap tampilkan session header di atas daftar exercise
 // ============================================
 async function showExerciseSelection(
   ctx: any,
   telegramId: number,
   splitName: string,
   label: string,
-  sessionId?: string
+  sessionId?: string,
+  sessionStartedAt?: string
 ) {
   const { defaultExercises, customExercises } = await getExercisesForSplit(
     splitName,
@@ -343,10 +450,9 @@ async function showExerciseSelection(
     return;
   }
 
-  // Session header kalau sudah ada sesi aktif
   let headerLine = '';
   if (sessionId) {
-    const h = await getSessionHeader(sessionId, splitName);
+    const h = await getSessionHeader(sessionId, splitName, sessionStartedAt);
     headerLine = `_${h}_\n\n`;
   }
 
@@ -414,6 +520,8 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
         splitId = split?.id ?? null;
       }
 
+      const startedAt = new Date().toISOString();
+
       const { data: session, error } = await supabase
         .from('workout_sessions')
         .insert({
@@ -421,22 +529,23 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
           split_id: splitId,
           status: 'in_progress',
           name: `${splitName.toUpperCase()} — ${new Date().toLocaleDateString('id-ID')}`,
-          started_at: new Date().toISOString(),
+          started_at: startedAt,
         })
         .select('id')
         .single();
 
       if (error || !session) throw new Error('Gagal membuat sesi');
 
+      // PHASE 3: simpan sessionStartedAt ke state — hemat DB call di header
       setFlowState(telegramId, {
         step: 'selecting_exercise',
         sessionId: session.id,
         splitName,
+        sessionStartedAt: startedAt,
       });
 
       const splitLabel = splitName.replace('_', ' ').toUpperCase();
-      // session baru → 0 EX, 0 SETS, header tetap ditampilkan
-      await showExerciseSelection(ctx, telegramId, splitName, splitLabel, session.id);
+      await showExerciseSelection(ctx, telegramId, splitName, splitLabel, session.id, startedAt);
 
     } catch (error) {
       console.error('wf_split error:', error);
@@ -445,6 +554,7 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
   });
 
   // ── wf_ex:{id} ──────────────────────────────
+  // PHASE 3: tampilkan exercise focus view (last set + PR)
   bot.action(/^wf_ex:/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
@@ -470,18 +580,30 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
       exerciseId: exercise.id,
       exerciseName: exercise.name,
       currentSetNumber: 1,
+      // PHASE 3: reset last set memory saat pindah exercise
+      lastWeight: undefined,
+      lastReps: undefined,
     });
 
-    // Session header untuk konteks
-    const header = state.sessionId
-      ? await getSessionHeader(state.sessionId, state.splitName ?? 'general')
-      : '';
-
-    await editOrReply(
-      ctx,
-      buildSetPrompt(exercise.name, 1, header),
-      { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
-    );
+    // PHASE 3: exercise focus view — tampilkan last PR dan last set dalam session
+    if (state.sessionId && state.splitName) {
+      const focusText = await getExerciseFocus(
+        telegramId,
+        exercise.id,
+        exercise.name,
+        state.sessionId,
+        state.splitName,
+        state.sessionStartedAt
+      );
+      await editOrReply(ctx, focusText, { parse_mode: 'Markdown', ...cancelOnlyKeyboard });
+    } else {
+      // Fallback kalau state tidak lengkap
+      await editOrReply(
+        ctx,
+        `🏋 *${exercise.name}* • Set 1\n\`80x6\``,
+        { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
+      );
+    }
   });
 
   // ── wf_addset ───────────────────────────────
@@ -499,15 +621,86 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
     updateFlowState(telegramId, { step: 'entering_set' });
 
     const header = state.sessionId
-      ? await getSessionHeader(state.sessionId, state.splitName ?? 'general')
+      ? await getSessionHeader(state.sessionId, state.splitName ?? 'general', state.sessionStartedAt)
       : '';
 
     await editOrReply(
       ctx,
-      // Set 2+ tidak perlu hint format lagi
-      buildSetPrompt(state.exerciseName, state.currentSetNumber ?? 2, header),
+      buildSetPrompt(
+        state.exerciseName,
+        state.currentSetNumber ?? 2,
+        header,
+        state.lastWeight,
+        state.lastReps
+      ),
       { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
     );
+  });
+
+  // ── wf_repeat ───────────────────────────────
+  // PHASE 3: NEW — repeat set terakhir tanpa ketik apapun
+  bot.action('wf_repeat', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    await ctx.answerCbQuery();
+
+    const state = getFlowState(telegramId);
+
+    // Guard: harus ada data repeat
+    if (
+      !state.sessionId ||
+      !state.exerciseId ||
+      !state.exerciseName ||
+      state.lastWeight == null ||
+      state.lastReps == null
+    ) {
+      await ctx.reply('⚠️ Tidak ada set yang bisa di-repeat.');
+      return;
+    }
+
+    const { lastWeight, lastReps } = state;
+
+    try {
+      const setNumber = state.currentSetNumber ?? 2;
+
+      const sessionExerciseId = await logSetToDatabase(
+        state.sessionId,
+        state.exerciseId,
+        lastWeight,
+        lastReps,
+        setNumber
+      );
+
+      const isPR = await checkAndUpdatePR(
+        telegramId,
+        state.exerciseId,
+        state.sessionId,
+        lastWeight,
+        lastReps
+      );
+
+      const nextSetNumber = await getNextSetNumber(sessionExerciseId);
+
+      const badge = getMotivationBadge(isPR, setNumber, lastWeight, lastWeight);
+
+      updateFlowState(telegramId, {
+        step: 'set_logged',
+        sessionExerciseId,
+        currentSetNumber: nextSetNumber,
+        // lastWeight + lastReps tetap sama — bisa repeat lagi
+      });
+
+      // Repeat selalu menggunakan setLoggedKeyboard (ada Repeat button)
+      await editOrReply(
+        ctx,
+        `✅ *${state.exerciseName}*\n${lastWeight} × ${lastReps} • Set ${setNumber}${badge}`,
+        { parse_mode: 'Markdown', ...setLoggedKeyboard }
+      );
+
+    } catch (error) {
+      console.error('wf_repeat error:', error);
+      await ctx.reply('⚠️ Gagal menyimpan repeat set. Coba lagi.');
+    }
   });
 
   // ── wf_newex ────────────────────────────────
@@ -528,13 +721,24 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
       exerciseName: undefined,
       sessionExerciseId: undefined,
       currentSetNumber: 1,
+      // PHASE 3: clear last set saat ganti exercise
+      lastWeight: undefined,
+      lastReps: undefined,
     });
 
     const splitLabel = state.splitName.replace('_', ' ').toUpperCase();
-    await showExerciseSelection(ctx, telegramId, state.splitName, splitLabel, state.sessionId);
+    await showExerciseSelection(
+      ctx,
+      telegramId,
+      state.splitName,
+      splitLabel,
+      state.sessionId,
+      state.sessionStartedAt
+    );
   });
 
   // ── wf_finish ───────────────────────────────
+  // PHASE 3: improved summary — compact tapi satisfying
   bot.action('wf_finish', async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
@@ -556,39 +760,85 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
         .select('started_at')
         .single();
 
-      let durationText = '';
+      let durationMin = 0;
       if (session?.started_at) {
-        const durationMin = Math.round(
+        durationMin = Math.round(
           (finishedAt.getTime() - new Date(session.started_at).getTime()) / 60000
         );
-        durationText = `⏱ ${durationMin} mnt  `;
         await supabase
           .from('workout_sessions')
           .update({ duration_minutes: durationMin })
           .eq('id', state.sessionId);
       }
 
-      const { count: totalSets } = await supabase
-        .from('exercise_sets')
-        .select('session_exercises!inner(session_id)', { count: 'exact', head: true })
-        .eq('session_exercises.session_id', state.sessionId);
+      // Ambil data untuk summary
+      const [
+        { count: totalSets },
+        { count: totalExercises },
+        { data: allSets },
+      ] = await Promise.all([
+        supabase
+          .from('exercise_sets')
+          .select('session_exercises!inner(session_id)', { count: 'exact', head: true })
+          .eq('session_exercises.session_id', state.sessionId),
+        supabase
+          .from('session_exercises')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', state.sessionId),
+        // PHASE 3: ambil semua sets untuk hitung volume dan top set
+        supabase
+          .from('exercise_sets')
+          .select(`
+            weight_kg, reps,
+            session_exercises!inner(
+              session_id,
+              exercises(name)
+            )
+          `)
+          .eq('session_exercises.session_id', state.sessionId),
+      ]);
 
-      const { count: totalExercises } = await supabase
-        .from('session_exercises')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', state.sessionId);
+      // PHASE 3: hitung total volume
+      let totalVolume = 0;
+      let topSetVolume = 0;
+      let topSetText = '';
+
+      if (allSets && allSets.length > 0) {
+        allSets.forEach((s: any) => {
+          const vol = (s.weight_kg ?? 0) * (s.reps ?? 0);
+          totalVolume += vol;
+          if (vol > topSetVolume) {
+            topSetVolume = vol;
+            const exName = s.session_exercises?.exercises?.name ?? '';
+            topSetText = `${exName} • ${s.weight_kg} × ${s.reps}`;
+          }
+        });
+      }
+
+      const volumeText = totalVolume > 0
+        ? `💥 ${totalVolume.toLocaleString('id-ID')}kg volume\n`
+        : '';
+
+      const topSetLine = topSetText
+        ? `\n🏆 _${topSetText}_`
+        : '';
 
       clearFlowState(telegramId);
 
-      const splitLabel = state.splitName?.replace('_', ' ').toUpperCase() ?? 'WORKOUT';
+      const splitLabel = state.splitName?.replace(/_/g, ' ').toUpperCase() ?? 'WORKOUT';
 
-      // PHASE 2: ringkas — tidak ada kalimat panjang, satu baris per data
+      // PHASE 3: summary compact dan satisfying
       await editOrReply(
         ctx,
-        `🏁 *${splitLabel} Selesai!*\n\n` +
-        `${durationText}🏋 ${totalExercises ?? 0} EX  💪 ${totalSets ?? 0} SETS\n\n` +
+        `🏁 *${splitLabel} COMPLETE*\n\n` +
+        `⏱ ${durationMin} min  🏋 ${totalExercises ?? 0} ex  💪 ${totalSets ?? 0} sets\n` +
+        `${volumeText}` +
+        `${topSetLine}\n\n` +
         `_Recover. Comeback stronger._ 🔥`,
-        { parse_mode: 'Markdown', ...require('../keyboards/mainMenu').mainMenuKeyboard }
+        {
+          parse_mode: 'Markdown',
+          ...require('../keyboards/mainMenu').mainMenuKeyboard,
+        }
       );
     } catch (error) {
       console.error('wf_finish error:', error);
@@ -609,9 +859,18 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
         step: 'selecting_exercise',
         exerciseId: undefined,
         exerciseName: undefined,
+        lastWeight: undefined,
+        lastReps: undefined,
       });
-      const splitLabel = state.splitName.replace('_', ' ').toUpperCase();
-      await showExerciseSelection(ctx, telegramId, state.splitName, splitLabel, state.sessionId);
+      const splitLabel = state.splitName.replace(/_/g, ' ').toUpperCase();
+      await showExerciseSelection(
+        ctx,
+        telegramId,
+        state.splitName,
+        splitLabel,
+        state.sessionId,
+        state.sessionStartedAt
+      );
     } else {
       clearFlowState(telegramId);
       await editOrReply(ctx, `🏠`, require('../keyboards/mainMenu').mainMenuKeyboard);
@@ -640,15 +899,20 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
       .single();
 
     if (!session) {
-      await editOrReply(ctx, '⚠️ Tidak ada sesi aktif.', require('../keyboards/mainMenu').mainMenuKeyboard);
+      await editOrReply(
+        ctx,
+        '⚠️ Tidak ada sesi aktif.',
+        require('../keyboards/mainMenu').mainMenuKeyboard
+      );
       return;
     }
 
-    const elapsed = Math.round((Date.now() - new Date(session.started_at).getTime()) / 60000);
+    const elapsed = Math.round(
+      (Date.now() - new Date(session.started_at).getTime()) / 60000
+    );
     const splitName = (session.splits as any)?.name ?? 'General';
 
-    // PHASE 2: compact status — tidak ada header panjang
-    let text = `📊 *${splitName.toUpperCase()}* • ${elapsed} mnt\n\n`;
+    let text = `📊 *${splitName.toUpperCase()}* • ${elapsed} min\n\n`;
 
     const exercises = (session.session_exercises as any[]) ?? [];
     if (exercises.length === 0) {
@@ -657,10 +921,14 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
       exercises
         .sort((a: any, b: any) => a.exercise_order - b.exercise_order)
         .forEach((se: any) => {
-          text += `🏋 *${se.exercises?.name}*\n`;
-          (se.exercise_sets as any[]).forEach((s: any) => {
-            text += `  ${s.set_number}. ${s.weight_kg} × ${s.reps}\n`;
-          });
+          const sets = (se.exercise_sets as any[]) ?? [];
+          const setCount = sets.length;
+          const lastSet = sets[sets.length - 1];
+          // PHASE 3: status lebih compact — ringkas per exercise, bukan list semua set
+          const lastInfo = lastSet
+            ? ` • ${lastSet.weight_kg}×${lastSet.reps} (${setCount} sets)`
+            : ` • ${setCount} sets`;
+          text += `🏋 *${se.exercises?.name}*${lastInfo}\n`;
         });
     }
 
@@ -701,7 +969,11 @@ export function registerWorkoutFlowHandlers(bot: Telegraf): void {
       .eq('status', 'in_progress');
 
     clearFlowState(telegramId);
-    await editOrReply(ctx, `🗑 Sesi dibatalkan.`, require('../keyboards/mainMenu').mainMenuKeyboard);
+    await editOrReply(
+      ctx,
+      `🗑 Sesi dibatalkan.`,
+      require('../keyboards/mainMenu').mainMenuKeyboard
+    );
   });
 
   // ── wf_add_split ────────────────────────────

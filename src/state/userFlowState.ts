@@ -4,7 +4,7 @@ export type FlowStep =
   | 'idle'
   | 'selecting_split'
   | 'selecting_exercise'
-  | 'entering_set'           // ← BARU: gantikan entering_weight + entering_reps
+  | 'entering_set'
   | 'set_logged'
   | 'entering_custom_exercise'
   | 'entering_custom_split'
@@ -21,7 +21,13 @@ export interface UserFlowState {
   sessionExerciseId?: string;
   currentSetNumber?: number;
   flowMessageId?: number;
-  // pendingWeight dihapus — tidak dibutuhkan lagi setelah merge input
+
+  // PHASE 3: last set memory — untuk repeat system
+  lastWeight?: number;
+  lastReps?: number;
+
+  // PHASE 3: session start time snapshot (untuk elapsed time tanpa DB call)
+  sessionStartedAt?: string;
 }
 
 const states = new Map<number, UserFlowState>();
@@ -49,7 +55,7 @@ export function clearFlowState(telegramId: number): void {
 export function isWaitingForInput(telegramId: number): boolean {
   const { step } = getFlowState(telegramId);
   return (
-    step === 'entering_set'            // ← satu step, bukan dua
+    step === 'entering_set'
     || step === 'entering_custom_exercise'
     || step === 'entering_custom_split'
     || step === 'entering_weight_log'
