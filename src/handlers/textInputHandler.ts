@@ -6,10 +6,11 @@ import {
   clearFlowState,
   isWaitingForInput,
 } from '../state/userFlowState';
-import { buildRepsKeyboard, cancelOnlyKeyboard } from '../keyboards/workoutFlow';
+import { cancelOnlyKeyboard } from '../keyboards/workoutFlow';
 import { emCancelKeyboard } from '../keyboards/exerciseManage';
 import { backToMenuKeyboard } from '../keyboards/mainMenu';
-import { processRepsInput, showExerciseSelection } from './workoutFlowHandler';
+import { processSetInput, showExerciseSelection } from './workoutFlowHandler';
+import { parseSetInput } from '../utils/parseSetInput';
 import { supabase } from '../config/supabase';
 
 export async function handleTextInput(ctx: Context): Promise<boolean> {
@@ -24,33 +25,25 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
   const input = message.text.trim();
   const state = getFlowState(telegramId);
 
-  // ── Case 1: Input berat workout ─────────────
-  if (state.step === 'entering_weight') {
-    const weight = parseFloat(input);
-    if (isNaN(weight) || weight <= 0 || weight > 500) {
-      await ctx.reply(`❌ Angka tidak valid. Contoh: \`80\` atau \`82.5\``, { parse_mode: 'Markdown' });
+  // ── Case 1: BARU — Input set gabungan (weight × reps) ─
+  // Menggantikan Case 'entering_weight' + Case 'entering_reps' yang lama
+  if (state.step === 'entering_set') {
+    const parsed = parseSetInput(input);
+
+    if (!parsed) {
+      // Error message pendek — sesuai UX requirement
+      await ctx.reply(
+        `❌ Format salah\nGunakan: \`80x6\``,
+        { parse_mode: 'Markdown' }
+      );
       return true;
     }
-    updateFlowState(telegramId, { step: 'entering_reps', pendingWeight: weight });
-    await ctx.reply(
-      `🏋️ *${state.exerciseName}*\n⚖️ ${weight} kg\n\n💪 Berapa reps?`,
-      { parse_mode: 'Markdown', ...buildRepsKeyboard(state.exerciseName ?? '', weight) }
-    );
+
+    await processSetInput(ctx, parsed.weight, parsed.reps);
     return true;
   }
 
-  // ── Case 2: Input reps custom ────────────────
-  if (state.step === 'entering_reps') {
-    const reps = parseInt(input);
-    if (isNaN(reps) || reps <= 0 || reps > 200) {
-      await ctx.reply(`❌ Angka tidak valid. Contoh: \`8\``, { parse_mode: 'Markdown' });
-      return true;
-    }
-    await processRepsInput(ctx, reps);
-    return true;
-  }
-
-  // ── Case 3: Input nama exercise custom ───────
+  // ── Case 2: Input nama exercise custom ───────
   if (state.step === 'entering_custom_exercise') {
     const exerciseName = input;
 
@@ -60,7 +53,6 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     }
 
     try {
-      // Cek dulu apakah nama sudah ada (milik user ini atau default)
       const { data: existing } = await supabase
         .from('exercises')
         .select('id, name, is_active')
@@ -69,7 +61,6 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
         .single();
 
       if (existing) {
-        // Sudah ada — kalau inactive, aktifkan lagi
         if (!existing.is_active) {
           await supabase
             .from('exercises')
@@ -77,9 +68,8 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
             .eq('id', existing.id);
         }
 
-        // Langsung pakai exercise ini
         updateFlowState(telegramId, {
-          step: state.sessionId ? 'entering_weight' : 'selecting_exercise',
+          step: state.sessionId ? 'entering_set' : 'selecting_exercise',
           exerciseId: existing.id,
           exerciseName: existing.name,
           currentSetNumber: 1,
@@ -91,7 +81,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
         if (state.sessionId) {
           await ctx.reply(
-            `${msg}\n\n⚖️ Berapa beratnya? *(kg)*`,
+            `${msg}\n\nInput set:\n\`80x6\`  → 80kg × 6 reps`,
             { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
           );
         } else {
@@ -100,7 +90,6 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
         return true;
       }
 
-      // Belum ada — insert baru
       const { data: newExercise, error } = await supabase
         .from('exercises')
         .insert({
@@ -114,20 +103,18 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
 
       if (error || !newExercise) throw error;
 
-      // Kalau sedang dalam session → langsung ke entering_weight
       if (state.sessionId) {
         updateFlowState(telegramId, {
-          step: 'entering_weight',
+          step: 'entering_set',
           exerciseId: newExercise.id,
           exerciseName: newExercise.name,
           currentSetNumber: 1,
         });
         await ctx.reply(
-          `✅ *${newExercise.name}* ditambahkan!\n\n⚖️ Berapa beratnya? *(kg)*`,
+          `✅ *${newExercise.name}* ditambahkan!\n\nInput set:\n\`80x6\`  → 80kg × 6 reps`,
           { parse_mode: 'Markdown', ...cancelOnlyKeyboard }
         );
       } else {
-        // Tidak dalam session → kembali ke manage menu
         updateFlowState(telegramId, { step: 'managing_exercises' });
         const { exerciseManageKeyboard } = require('../keyboards/exerciseManage');
         await ctx.reply(
@@ -144,7 +131,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // ── Case 4: Input nama split custom ──────────
+  // ── Case 3: Input nama split custom ──────────
   if (state.step === 'entering_custom_split') {
     const splitName = input;
 
@@ -196,7 +183,7 @@ export async function handleTextInput(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  // ── Case 5: Input berat badan ────────────────
+  // ── Case 4: Input berat badan ────────────────
   if (state.step === 'entering_weight_log') {
     const weight = parseFloat(input);
 
