@@ -155,26 +155,36 @@ export function registerCallbackHandlers(bot: Telegraf): void {
   });
 
   bot.action('menu_help', async (ctx) => {
-    await ctx.answerCbQuery();
-    await editOrReply(
-      ctx,
-      `❓ *Cara Pakai GymBot*\n\n` +
-      `*Perintah dasar:*\n` +
-      `⚖️ \`/weight 72.5\` — Log berat badan\n` +
-      `🏋️ \`/workout push\` — ⚠️ Deprecated, pakai /session\n` +
-      `📊 \`/stats\` — Lihat statistik\n\n` +
-      `*Sistem baru:*\n` +
-      `🏋️ \`/session start push\` — Mulai sesi latihan\n` +
-      `📝 \`/log bench press 60 8\` — Log set\n` +
-      `✅ \`/done\` — Selesaikan sesi\n\n` +
-      `*Level intensitas (sistem lama):*\n` +
-      `• \`low\` • \`medium\` • \`high\``,
-      {
-        parse_mode: 'Markdown',
-        ...backToMenuKeyboard,
-      }
-    );
-  });
+  await ctx.answerCbQuery();
+  await editOrReply(
+    ctx,
+    `❓ *Cara Pakai GymBot*\n\n` +
+
+    `*🏋 Mulai Latihan*\n` +
+    `Tap *Mulai Latihan* → pilih split (Push/Pull/Legs/dll)\n` +
+    `→ pilih exercise → ketik set, contoh: \`80x6\`\n\n` +
+
+    `*➕ Log Set*\n` +
+    `Format input: \`[berat]x[reps]\`\n` +
+    `Contoh: \`80x6\` • \`100x3\` • \`0x12\` _(bodyweight)_\n\n` +
+
+    `*🔁 Repeat Set*\n` +
+    `Tekan *Repeat* untuk simpan set yang sama lagi — tanpa ketik ulang.\n\n` +
+
+    `*⚖️ Log Berat Badan*\n` +
+    `Tap *Log Berat* → ketik angka, contoh: \`72.5\`\n\n` +
+
+    `*📊 Stats*\n` +
+    `Lihat berat badan, latihan minggu ini, dan total all-time.\n\n` +
+
+    `*✅ Selesai Latihan*\n` +
+    `Tap *Finish* saat latihan selesai → summary otomatis muncul.`,
+    {
+      parse_mode: 'Markdown',
+      ...backToMenuKeyboard,
+    }
+  );
+});
 
   // ==========================================
   // SESSION MENU CALLBACKS
