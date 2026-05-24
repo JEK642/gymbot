@@ -9,8 +9,6 @@ export const mainMenuKeyboard = Markup.inlineKeyboard([
     Markup.button.callback('⚖️ Log Berat', 'menu_weight'),
     Markup.button.callback('📈 Stats', 'menu_stats'),
   ],
-  // Tombol "📋 Exercise List" dihapus.
-  // Masih bisa diakses via command /exercises kalau perlu.
   [
     Markup.button.callback('❓ Bantuan', 'menu_help'),
   ],
@@ -43,4 +41,14 @@ export const workoutTypeKeyboard = Markup.inlineKeyboard([
 
 export const backToMenuKeyboard = Markup.inlineKeyboard([
   [Markup.button.callback('🏠 Menu Utama', 'menu_main')],
+]);
+
+// BARU: dipakai khusus di halaman Stats
+export const statsKeyboard = Markup.inlineKeyboard([
+  [
+    Markup.button.url('📊 Dashboard', 'https://gymbot-frontend.vercel.app'),
+  ],
+  [
+    Markup.button.callback('🏠 Menu Utama', 'menu_main'),
+  ],
 ]);
