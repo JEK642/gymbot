@@ -7,7 +7,7 @@ export const mainMenuKeyboard = Markup.inlineKeyboard([
   ],
   [
     Markup.button.callback('⚖️ Log Berat', 'menu_weight'),
-    Markup.button.callback('📈 Stats', 'menu_stats'),
+    Markup.button.callback('📈 Stats', 'https://gymbot-frontend.vercel.app'),
   ],
   [
     Markup.button.callback('❓ Bantuan', 'menu_help'),
