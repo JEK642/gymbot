@@ -1,6 +1,7 @@
 // src/keyboards/workoutFlow.ts
 import { Markup } from 'telegraf';
 import { Exercise } from '../types';
+import { shortExerciseName } from '../utils/shortExerciseName';
 
 // ── Screen 1: Split Selection ─────────────────
 export const splitKeyboard = Markup.inlineKeyboard([
@@ -28,6 +29,7 @@ export const splitKeyboard = Markup.inlineKeyboard([
 ]);
 
 // ── Screen 2: Exercise Selection ──────────────
+// PHASE 2: pakai shortExerciseName — tidak ada ellipsis, label lebih bersih
 export function buildExerciseKeyboard(
   defaultExercises: Exercise[],
   customExercises: Exercise[],
@@ -39,14 +41,14 @@ export function buildExerciseKeyboard(
   for (let i = 0; i < defaults.length; i += 2) {
     const row = [
       Markup.button.callback(
-        truncateName(defaults[i].name),
+        shortExerciseName(defaults[i].name),
         `wf_ex:${defaults[i].id}`
       ),
     ];
     if (defaults[i + 1]) {
       row.push(
         Markup.button.callback(
-          truncateName(defaults[i + 1].name),
+          shortExerciseName(defaults[i + 1].name),
           `wf_ex:${defaults[i + 1].id}`
         )
       );
@@ -58,14 +60,14 @@ export function buildExerciseKeyboard(
     for (let i = 0; i < customExercises.length; i += 2) {
       const row = [
         Markup.button.callback(
-          `⭐ ${truncateName(customExercises[i].name)}`,
+          `⭐ ${shortExerciseName(customExercises[i].name)}`,
           `wf_ex:${customExercises[i].id}`
         ),
       ];
       if (customExercises[i + 1]) {
         row.push(
           Markup.button.callback(
-            `⭐ ${truncateName(customExercises[i + 1].name)}`,
+            `⭐ ${shortExerciseName(customExercises[i + 1].name)}`,
             `wf_ex:${customExercises[i + 1].id}`
           )
         );
@@ -75,22 +77,19 @@ export function buildExerciseKeyboard(
   }
 
   rows.push([
-    Markup.button.callback('⚙️ Kelola Exercise', 'em_open'),
-  ]);
-
-  rows.push([
-    Markup.button.callback('🔙 Ganti Split', 'wf_start'),
-    Markup.button.callback('🏠 Home',        'menu_main'),
+    Markup.button.callback('⚙️ Kelola', 'em_open'),
+    Markup.button.callback('🔙 Split',  'wf_start'),
+    Markup.button.callback('🏠 Home',   'menu_main'),
   ]);
 
   return Markup.inlineKeyboard(rows);
 }
 
-// ── Screen 3: Set Logged — GRID 2×2 ──────────
-// CHANGED: dari 4 baris vertikal → grid 2×2 kompak
+// ── Screen 3: Set Logged — grid 2×2 kompak ───
+// PHASE 2: label pendek, 2 baris maksimal
 export const setLoggedKeyboard = Markup.inlineKeyboard([
   [
-    Markup.button.callback('➕ Set Lagi',  'wf_addset'),
+    Markup.button.callback('➕ Set',      'wf_addset'),
     Markup.button.callback('🔁 Exercise', 'wf_newex'),
   ],
   [
@@ -114,18 +113,11 @@ export const activeSessionKeyboard = Markup.inlineKeyboard([
 // ── Cancel keyboards ──────────────────────────
 export const cancelKeyboard = Markup.inlineKeyboard([
   [
-    Markup.button.callback('🔙 Back', 'wf_start'),
-    Markup.button.callback('🏠 Home', 'menu_main'),
+    Markup.button.callback('🔙 Split', 'wf_start'),
+    Markup.button.callback('🏠 Home',  'menu_main'),
   ],
 ]);
 
 export const cancelOnlyKeyboard = Markup.inlineKeyboard([
   [Markup.button.callback('❌ Cancel', 'wf_cancel')],
 ]);
-
-// ── Helper ────────────────────────────────────
-function truncateName(name: string, max = 16): string {
-  return name.length > max ? name.slice(0, max - 1) + '…' : name;
-}
-
-// buildRepsKeyboard DIHAPUS — tidak dipakai lagi setelah UX merge
